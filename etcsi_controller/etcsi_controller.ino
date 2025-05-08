@@ -13,11 +13,12 @@
   int throttleClutchPin = 0; // motor clutch, should be engaged all the time pretty much
   int throttleMotorPin = 0; // the throttle body motor itself
 
+
   //variables
   long pedalVal = 0;
 void setup() {
   // put your setup code here, to run once:
-
+  pinMode(LED_BUILTIN, OUTPUT);
   //serial port
   Serial.begin(115200);
 }
@@ -39,7 +40,11 @@ void loop() {
   // basic loop: read sensor target, calculate target write value using a PID algorithm, and then drive the motor with a PWM signal
   readVPA();
   Serial.write(pedalVal);
+  digitalWrite(LED_BUILTIN, HIGH);
   delay(500);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(500);
+
 }
 
 
