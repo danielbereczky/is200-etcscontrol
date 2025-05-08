@@ -11,8 +11,7 @@
   int throttlePin2 = A3;
 
   //outputs
-  int throttleClutchPin = 13; // motor clutch, should be engaged all the time 
-  int throttleMotorPin = 2; // PWM Signal for controlling the throttle body's DC Motor
+  int throttleMotorPin = 3; // PWM Signal for controlling the throttle body's DC Motor
   int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for controlling speed and direction
   int motorControl2 = 7; //IN2 signal of the L298N DC motor driver, used for controlling speed and direction
 
@@ -28,15 +27,13 @@
 void setup() {
 
   //setting up pins for motor control
-  pinMode(throttleClutchPin,OUTPUT);
   pinMode(throttleMotorPin,OUTPUT);
   pinMode(motorControl1,OUTPUT);
   pinMode(motorControl2,OUTPUT);
 
   //Initializing inputs
-  digitalWrite(throttleClutchPin,LOW);
   digitalWrite(throttleMotorPin,LOW);
-  digitalWrite(motorControl1,HIGH); //combined with the motorControl2, this setting makes the throttle motor go forward- we have a spring returning it to zero, so no need to drive it backwards ever (maybe as a failsafe?)
+  digitalWrite(motorControl1,LOW); 
   digitalWrite(motorControl2,LOW);
 
   // setting up breather LED
@@ -68,9 +65,38 @@ void readVTA(){
 void driveThrottleMotorPWM(int pwmValue){
   analogWrite(throttleMotorPin,pwmValue); 
 }
+void throttleBodyDemo(int timeSteps){
+  void demoThrottleSweep() {
+  Serial.println("Starting throttle motor PWM sweep...");
+
+  // Make sure the clutch is engaged
+  digitalWrite(throttleClutchPin, HIGH);
+
+  // Set motor direction (forward, or as needed)
+  digitalWrite(motorControl1, HIGH);
+  digitalWrite(motorControl2, LOW);
+
+  // Sweep PWM up (opening throttle)
+  for (int pwm = 0; pwm <= 255; pwm += 5) {
+    analogWrite(throttleMotorPin, pwm);
+    delay(timeSteps); // adjust for speed
+  }
+
+  delay(1000); // hold open
+
+  // Sweep PWM down (closing throttle)
+  for (int pwm = 255; pwm >= 0; pwm -= 5) {
+    analogWrite(throttleMotorPin, pwm);
+    delay(timeSteps); // adjust for speed
+  }
+}
 
 void loop() {
-  // put your main code here, to run repeatedly:
+
+  // set L298n motor control pins for direction
+  digitalWrite(motorControl1,LOW);
+  digitalWrite(motorControl2,HIGH);
+
   // basic loop: read pedal input, read throttle position, calculate target, write value using a PID algorithm, and drive the motor with a PWM signal
 
   //read pedal input
@@ -80,7 +106,9 @@ void loop() {
   readVTA();
 
   //drive throttle body with a PWM signal
-  driveThrottleMotorPWM(100); // used for testing whether the control works at all
+  // driveThrottleMotorPWM(255); // used for testing whether the control works at all
+  throttleBodyDemo(50);
+
 
   //ONLY USED FOR DEBUG
   Serial.print("Throttle Pedal percentage:  ");
