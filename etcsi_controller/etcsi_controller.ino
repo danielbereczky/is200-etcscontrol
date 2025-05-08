@@ -9,9 +9,12 @@
 
   int throttlePin = A2; // pin for throttle valve position sensor 1 (rising voltage)
   int throttlePin2 = A3;
+
   //outputs
-  //int throttleClutchPin = 0; // motor clutch, should be engaged all the time pretty much
-  //int throttleMotorPin = 0; // the throttle body motor itself
+  int throttleClutchPin = 13; // motor clutch, should be engaged all the time 
+  int throttleMotorPin = 2; // PWM Signal for controlling the throttle body's DC Motor
+  int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for controlling speed and direction
+  int motorControl2 = 7; //IN2 signal of the L298N DC motor driver, used for controlling speed and direction
 
   //variables
   long pedalVal = 0;
@@ -23,7 +26,20 @@
   int throttleValZeroOffset = 506;
 
 void setup() {
-  // put your setup code here, to run once:
+
+  //setting up pins for motor control
+  pinMode(throttleClutchPin,OUTPUT);
+  pinMode(throttleMotorPin,OUTPUT);
+  pinMode(motorControl1,OUTPUT);
+  pinMode(motorControl2,OUTPUT);
+
+  //Initializing inputs
+  digitalWrite(throttleClutchPin,LOW);
+  digitalWrite(throttleMotorPin,LOW);
+  digitalWrite(motorControl1,HIGH); //combined with the motorControl2, this setting makes the throttle motor go forward- we have a spring returning it to zero, so no need to drive it backwards ever (maybe as a failsafe?)
+  digitalWrite(motorControl2,LOW);
+
+  // setting up breather LED
   pinMode(LED_BUILTIN, OUTPUT);
   //serial port
   Serial.begin(115200);
@@ -49,15 +65,22 @@ void readVTA(){
   throttleValNormalized = map(throttleVal,throttleValZeroOffset,1023,0,100);
 }
 
-void calculateMotorPWM();
+void driveThrottleMotorPWM(int pwmValue){
+  analogWrite(throttleMotorPin,pwmValue); 
+}
 
 void loop() {
   // put your main code here, to run repeatedly:
   // basic loop: read pedal input, read throttle position, calculate target, write value using a PID algorithm, and drive the motor with a PWM signal
+
   //read pedal input
   readVPA();
+
   //read throttle input
   readVTA();
+
+  //drive throttle body with a PWM signal
+  driveThrottleMotorPWM(100); // used for testing whether the control works at all
 
   //ONLY USED FOR DEBUG
   Serial.print("Throttle Pedal percentage:  ");
@@ -67,11 +90,13 @@ void loop() {
   Serial.print('\n');
 
 
-//breather
+  //breather
   digitalWrite(LED_BUILTIN, HIGH);
   delay(100);
   digitalWrite(LED_BUILTIN, LOW);
   delay(100);
+
+
 
 }
 
