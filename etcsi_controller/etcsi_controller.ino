@@ -24,10 +24,20 @@
   int throttleValPercent = 0;
   int throttleValZeroOffset = 506;
 
+  //misc
+  float returnPWMMultiplier = 0.1f; // to compensate for throttle return spring
+  float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area where the motor doesnt react as well as in the higher areas;
+
   //PID variables
-  float kP = 3.5f;
-  float kI = 0.03f;
-  float kD = 0.0f;
+  /* -- kindof works
+  float kP = 0.96f;
+  float kI = 1.12f;
+  float kD = 1.8f;
+  */
+
+  float kP = 2.0f;
+  float kI = 1.4f;
+  float kD = 1.7f;
 
   int lastError = 0;
   float integral = 0;
@@ -77,17 +87,24 @@ void driveThrottleMotorPWM(int pwmValue,int direction){
 
   pwmValue = constrain(pwmValue,0,255); // constrain PWM value to 8 bits
 
+if (throttleValPercent < pedalValPercent && pedalValPercent < 40) {
+    float normalized = pedalValPercent / 40.0f; // 0.0 to 1.0
+    float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f; // from 3.0 to 1.0
+    pwmValue *= scale;
+}
   //if direction is 1 , throttle is driven towards open position, otherwise the polarity is reversed to close it.
   if(direction){
     digitalWrite(motorControl1, LOW);
     digitalWrite(motorControl2, HIGH);
+    analogWrite(throttleMotorPin,pwmValue); 
+    commandedPWM = pwmValue;
   }
   else{
     digitalWrite(motorControl1, HIGH);
     digitalWrite(motorControl2, LOW);
+    analogWrite(throttleMotorPin,pwmValue * returnPWMMultiplier); // because there exists a spring in the throttle body, which would normally return it to zero, we don't need to commands as much PWM to move towards zero. 
+    commandedPWM = pwmValue * returnPWMMultiplier;
   }
-  analogWrite(throttleMotorPin,pwmValue); 
-  commandedPWM = pwmValue;
 }
 
 void throttleBodyDemo(int timeSteps){
@@ -114,6 +131,7 @@ void closedLoopControl(){
   if(throttleValPercent == 0){
     integral = 0;
   }
+
   //PID Control algorithm
 
   int error = pedalValPercent - throttleValPercent; // error calculation
@@ -126,7 +144,7 @@ void closedLoopControl(){
 
 
   // if the error is small, the motor should not be moved
-  if(abs(error < 3)){
+  if(abs(error <= 1)){
     digitalWrite(motorControl1,LOW);
     digitalWrite(motorControl2,LOW);
     analogWrite(throttleMotorPin,0); 
@@ -160,6 +178,7 @@ void loop() {
 
   closedLoopControl();
 
+  /*
   //ONLY USED FOR DEBUG
   Serial.print("Throttle Pedal percentage:  ");
   Serial.print(pedalValPercent);
@@ -168,7 +187,7 @@ void loop() {
   Serial.print("  Commanded PWM:");
   Serial.print(commandedPWM);
   Serial.print('\n');
-
+  */
 
   //breather
   digitalWrite(LED_BUILTIN, HIGH);
@@ -176,6 +195,11 @@ void loop() {
   digitalWrite(LED_BUILTIN, LOW);
   delay(100);
 
+//plotting for tuning PID
+
+Serial.print(pedalValPercent);
+Serial.print('\t');
+Serial.println(throttleValPercent);
 
 
 }
