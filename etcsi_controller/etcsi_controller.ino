@@ -1,32 +1,36 @@
 //This code implements a controller for Toyota's ETCS electronic throttle system for the 1G-FE Engine found in the Lexus IS 200.
 //Created by Daniel Bereczky 
 
-  //pin assignment
 
-  //sensor inputs (redundant)
-  int pedalPin = A0; // pin for throttle pedal position sensor 1 (rising voltage)
-  int pedalPin2 = A1;
+//pin assignment
 
-  int throttlePin = A2; // pin for throttle valve position sensor 1 (rising voltage)
-  int throttlePin2 = A3;
+//sensor inputs (redundant)
+int pedalPin = A0; // pin for throttle pedal position sensor 1 (rising voltage)
+int pedalPin2 = A1;
 
-  //outputs
-  int throttleMotorPin = 3; // PWM Signal for controlling the throttle body's DC Motor
-  int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for controlling speed and direction
-  int motorControl2 = 7; //IN2 signal of the L298N DC motor driver, used for controlling speed and direction
+int throttlePin = A2; // pin for throttle valve position sensor 1 (rising voltage)
+int throttlePin2 = A3;
 
-  //variables
-  long pedalVal = 0;
-  int pedalValPercent = 0;
-  int pedalValZeroOffset = 430;
+//outputs
+int throttleMotorPin = 3; // PWM Signal for controlling the throttle body's DC Motor
+int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for controlling speed and direction
+int motorControl2 = 7; //IN2 signal of the L298N DC motor driver, used for controlling speed and direction
 
-  long throttleVal = 0;
-  int throttleValPercent = 0;
-  int throttleValZeroOffset = 506;
+//variables
+long pedalVal = 0;
+int pedalValPercent = 0;
+int pedalValZeroOffset = 430;
 
-  //misc
-  float returnPWMMultiplier = 0.1f; // to compensate for throttle return spring
-  float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area where the motor doesnt react as well as in the higher areas;
+long throttleVal = 0;
+int throttleValPercent = 0;
+int throttleValZeroOffset = 506;
+
+//misc
+float returnPWMMultiplier = 0.1f; // to compensate for throttle return spring
+float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area where the motor doesnt react as well as in the higher areas;
+
+//comms
+float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position (max. 50% authority)
 
   //PID variables
   /* -- kindof works
@@ -35,17 +39,33 @@
   float kD = 1.8f;
   */
 
-  float kP = 2.0f;
-  float kI = 1.4f;
-  float kD = 1.7f;
+float kP = 2.0f;
+float kI = 1.4f;
+float kD = 1.7f;
 
-  int lastError = 0;
-  float integral = 0;
+int lastError = 0;
+float integral = 0;
 
-  //debug
-  int commandedPWM = 0;
+//debug
+int commandedPWM = 0;
+
+#include <ros.h>
+#include <std_msgs/Float32.h>  // Use Float32 for correction value
+
+ros::NodeHandle nh;
+
+// Callback function: updates compensation value whenever a new message arrives
+void correctionCallback(const std_msgs::Float32& msg){
+  compensation = msg.data;
+}
+
+// Subscriber subscribing to topic "throttle_correction"
+ros::Subscriber<std_msgs::Float32> correction_sub("throttle_correction", &correctionCallback);
 
 void setup() {
+  
+  nh.initNode();
+  nh.subscribe(correction_sub);
 
   //setting up pins for motor control
   pinMode(throttleMotorPin,OUTPUT);
@@ -132,9 +152,16 @@ void closedLoopControl(){
     integral = 0;
   }
 
+  float corrected_pedal = pedalValPercent + compensation;
+  
+  // Clamp corrected pedal to [0, 100]
+  if(corrected_pedal > 100) corrected_pedal = 100;
+  if(corrected_pedal < 0) corrected_pedal = 0;
+
   //PID Control algorithm
 
-  int error = pedalValPercent - throttleValPercent; // error calculation
+  int error = corrected_pedal - throttleValPercent;
+  //int error = pedalValPercent - throttleValPercent; // error calculation
 
   integral += error; // I
 
@@ -178,6 +205,7 @@ void loop() {
 
   closedLoopControl();
 
+   nh.spinOnce(); // update ROS
   /*
   //ONLY USED FOR DEBUG
   Serial.print("Throttle Pedal percentage:  ");
