@@ -1,0 +1,7 @@
+-- COMMAND DIFFERENT POSITIONS:
+rostopic pub /throttle_correction std_msgs/Float32 "data: 50.0"
+
+-- START ROS ON LINUX:
+roscore
+rosrun rosserial_python serial_node.py /dev/ttyUSB0 _baud:=115200 <-- lehet h mas port
+rostopic pub /throttle_correction std_msgs/Float32 "data: 93.0"
