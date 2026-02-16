@@ -25,19 +25,23 @@ long throttleVal = 0;
 int throttleValPercent = 0;
 int throttleValZeroOffset = 506;
 
+//modifiers
+#define ALS_REQ = 10; //ALS request value, only done when als request is active, and driver is off-throttle.
+#define IDLE_REQ = 5; //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
+
+int idleActive = 0; // is idle requested?
+int ALSActive = 0; // is ALS requested?
+
+int TCCut = 0;
+
+float rainMode[10] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
+
 //misc
 float returnPWMMultiplier = 0.1f; // to compensate for throttle return spring
 float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area where the motor doesnt react as well as in the higher areas;
 
 //comms
-float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position (max. 50% authority)
-
-  //PID variables
-  /* -- kindof works
-  float kP = 0.96f;
-  float kI = 1.12f;
-  float kD = 1.8f;
-  */
+float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position
 
 float kP = 2.0f;
 float kI = 1.4f;
@@ -94,7 +98,7 @@ void readVPA(){
 }
 
 void readVTA(){
-    //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
+  //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
   throttleVal = 0;
   for(unsigned int i = 0; i < 256;i++){
     throttleVal += analogRead(throttlePin);
@@ -105,13 +109,13 @@ void readVTA(){
 
 void driveThrottleMotorPWM(int pwmValue,int direction){
 
-  pwmValue = constrain(pwmValue,0,255); // constrain PWM value to 8 bits
+  pwmValue = constrain((int)fabs(pwmValue),0,255); // constrain PWM value to 8 bits
 
-if (throttleValPercent < pedalValPercent && pedalValPercent < 40) {
+  if (throttleValPercent < pedalValPercent && pedalValPercent < 40) {
     float normalized = pedalValPercent / 40.0f; // 0.0 to 1.0
     float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f; // from 3.0 to 1.0
     pwmValue *= scale;
-}
+  } 
   //if direction is 1 , throttle is driven towards open position, otherwise the polarity is reversed to close it.
   if(direction){
     digitalWrite(motorControl1, LOW);
@@ -145,6 +149,10 @@ void throttleBodyDemo(int timeSteps){
   delay(20);
 }
 
+int calculateSetPoint(){
+  return 0;
+}
+
 void closedLoopControl(){
 
   //TO avoid integral windup, reset integral when throttle body is closed
@@ -171,7 +179,7 @@ void closedLoopControl(){
 
 
   // if the error is small, the motor should not be moved
-  if(abs(error <= 1)){
+  if(abs(error) <= 1){
     digitalWrite(motorControl1,LOW);
     digitalWrite(motorControl2,LOW);
     analogWrite(throttleMotorPin,0); 
@@ -200,12 +208,12 @@ void loop() {
   //read throttle input
   readVTA();
 
-  //drive throttle body with a PWM signall
+  //drive throttle body with a PWM signal
   //throttleBodyDemo(60); // demo
 
   closedLoopControl();
 
-   nh.spinOnce(); // update ROS
+  nh.spinOnce(); // update ROS
   /*
   //ONLY USED FOR DEBUG
   Serial.print("Throttle Pedal percentage:  ");
