@@ -80,8 +80,6 @@ void setup(){
   digitalWrite(motorControl1,LOW); 
   digitalWrite(motorControl2,LOW);
 
-  // setting up breather LED
-  pinMode(LED_BUILTIN, OUTPUT);
   //serial port
   Serial.begin(115200);
 }
@@ -89,21 +87,21 @@ void setup(){
 void readVPA(){
   //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
   pedalVal = 0;
-  for(unsigned int i = 0; i < 256;i++){
+  for(unsigned int i = 0; i < 64;i++){
     pedalVal += analogRead(pedalPin);
   }
-  pedalVal /=  256;
-  pedalValPercent = map(pedalVal,pedalValZeroOffset,1023,0,100);
+  pedalVal /=  64;
+  pedalValPercent = constrain(map(pedalVal,pedalValZeroOffset,1023,0,100),0,100);
 }
 
 void readVTA(){
   //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
   throttleVal = 0;
-  for(unsigned int i = 0; i < 256;i++){
+  for(unsigned int i = 0; i < 64;i++){
     throttleVal += analogRead(throttlePin);
   }
-  throttleVal /=  256;
-  throttleValPercent = map(throttleVal,throttleValZeroOffset,1023,0,100);
+  throttleVal /=  64;
+  throttleValPercent = constrain(map(throttleVal,throttleValZeroOffset,1023,0,100),0,100);
 }
 
 void driveThrottleMotorPWM(float pwmValue,int direction){
@@ -137,11 +135,11 @@ float clampVal(float f){
 float calculateSetPoint(){
 
   //ALS
-  if(pedalVal == 0 && ALSActive == 1){ //only call ALS if drive is off-throttle, and a request is active
+  if(pedalValPercent < 1 && ALSActive == 1){ //only call ALS if drive is off-throttle, and a request is active
     return ALS_REQ;
   }
   //idle
-  if(pedalVal == 0 && idleActive == 1 && compensation == 0){ //only use idle when ADAS requests no correction, driver is off-throttle, and an idle request is active.
+  if(pedalValPercent < 1 && idleActive == 1 && compensation == 0){ //only use idle when ADAS requests no correction, driver is off-throttle, and an idle request is active.
     return IDLE_REQ;
   }
 
@@ -174,6 +172,7 @@ void closedLoopControl(){
 
   // if the error is small, the motor should not be moved
   if(abs(error) <= 1){
+    integral = 0;
     digitalWrite(motorControl1,LOW);
     digitalWrite(motorControl2,LOW);
     analogWrite(throttleMotorPin,0); 
@@ -202,14 +201,6 @@ void loop() {
   closedLoopControl();
 
   nh.spinOnce(); // update ROS
-
-  //breather
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(500);
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(500);
-
-
 
 //plotting for tuning PID
 
