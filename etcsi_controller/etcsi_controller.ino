@@ -11,6 +11,11 @@ int pedalPin2 = A1;
 int throttlePin = A2; // pin for throttle valve position sensor 1 (rising voltage)
 int throttlePin2 = A3;
 
+
+//tc% input
+
+int TCPin = A4;
+
 //outputs
 int throttleMotorPin = 3; // PWM Signal for controlling the throttle body's DC Motor
 int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for controlling speed and direction
@@ -25,10 +30,14 @@ long throttleVal = 0;
 int throttleValPercent = 0;
 int throttleValZeroOffset = 507;
 
+int TCVal = 0;
+int TCCut = 0; // value of applied Traction Control Cut, in percent
+int TCZeroOffset = 0;
+
 //modifiers
 #define ALS_REQ 10.0f //ALS request value, only done when als request is active, and driver is off-throttle.
 #define IDLE_REQ  5.0f //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
-int TCCut = 0; // value of applied Traction Control Cut, in percent
+
 int idleActive = 0; // is idle requested?
 int ALSActive = 0; // is ALS requested?
 
@@ -100,6 +109,15 @@ void readVTA(){
   throttleValPercent = constrain(map(throttleVal,throttleValZeroOffset,1023,0,100),0,100);
 }
 
+void readTCCut(){
+  TCVal = 0;
+  for(unsigned int i = 0; i < 8;i++){
+    TCVal += analogRead(TCPin);
+  }
+  TCVal /=  8;
+  TCCut = constrain(map(TCVal,TCZeroOffset,1023,0,100),0,100);
+}
+
 void driveThrottleMotorPWM(float pwmValue,int direction){
 
   pwmValue = constrain(pwmValue,0,255.0); // constrain PWM value to 8 bits
@@ -133,6 +151,9 @@ float calculateSetPoint(){
   }
 
   float corrected_pedal = (float)pedalValPercent + compensation;
+  
+  //apply TC Cut
+  corrected_pedal = corrected_pedal * (100-TCCut);
 
   return clampVal(corrected_pedal);
 }
@@ -181,6 +202,9 @@ void loop() {
 
   //read throttle input
   readVTA();
+
+  //read TC Pot
+  readTCCut();
 
   //drive the throttle body with PID.
   closedLoopControl();
