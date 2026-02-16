@@ -23,7 +23,7 @@ int pedalValZeroOffset = 430;
 
 long throttleVal = 0;
 int throttleValPercent = 0;
-int throttleValZeroOffset = 506;
+int throttleValZeroOffset = 507;
 
 //modifiers
 #define ALS_REQ = 10; //ALS request value, only done when als request is active, and driver is off-throttle.
@@ -43,9 +43,9 @@ float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area w
 //comms
 float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position
 
-float kP = 2.0f;
-float kI = 1.4f;
-float kD = 1.7f;
+float kP = 1.4f;
+float kI = 1.8f;
+float kD = 1.24f;
 
 int lastError = 0;
 float integral = 0;
@@ -109,13 +109,13 @@ void readVTA(){
 
 void driveThrottleMotorPWM(int pwmValue,int direction){
 
-  pwmValue = constrain((int)fabs(pwmValue),0,255); // constrain PWM value to 8 bits
+  pwmValue = constrain((int)fabs(pwmValue),0,255); // constrain PWM value to 8 bits, cast to integer
 
   if (throttleValPercent < pedalValPercent && pedalValPercent < 40) {
     float normalized = pedalValPercent / 40.0f; // 0.0 to 1.0
     float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f; // from 3.0 to 1.0
     pwmValue *= scale;
-  } 
+  }
   //if direction is 1 , throttle is driven towards open position, otherwise the polarity is reversed to close it.
   if(direction){
     digitalWrite(motorControl1, LOW);
