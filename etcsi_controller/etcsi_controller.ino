@@ -29,29 +29,25 @@ int throttleValZeroOffset = 507;
 #define ALS_REQ 10.0f //ALS request value, only done when als request is active, and driver is off-throttle.
 #define IDLE_REQ  5.0f //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
 int TCCut = 0; // value of applied Traction Control Cut, in percent
-
 int idleActive = 0; // is idle requested?
 int ALSActive = 0; // is ALS requested?
 
 
-float rainMode[10] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
-
 //misc
-float returnPWMMultiplier = 0.1f; // to compensate for throttle return spring
-float lowAreaMultiplier = 0.3f; // to compensate for the initial throttle area where the motor doesnt react as well as in the higher areas;
+float returnPWMMultiplier = 0.6f; // to compensate for throttle return spring
 
 //comms
 float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position
 
-float kP = 1.4f;
-float kI = 1.8f;
-float kD = 1.24f;
+float kP = 19.0f;
+float kI = 16.0f;
+float kD = 0.5f;
 
 float lastError = 0;
 float integral = 0;
 
-//debug
-int commandedPWM = 0;
+unsigned long lastTime = 0;
+
 
 #include <ros.h>
 #include <std_msgs/Float32.h>  // Use Float32 for correction value
@@ -85,7 +81,7 @@ void setup(){
 }
 
 void readVPA(){
-  //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
+  //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
   pedalVal = 0;
   for(unsigned int i = 0; i < 64;i++){
     pedalVal += analogRead(pedalPin);
@@ -95,7 +91,7 @@ void readVPA(){
 }
 
 void readVTA(){
-  //read the throttle pedal 256 times and average the values, so noise does not mess up the readings.
+  //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
   throttleVal = 0;
   for(unsigned int i = 0; i < 64;i++){
     throttleVal += analogRead(throttlePin);
@@ -107,24 +103,22 @@ void readVTA(){
 void driveThrottleMotorPWM(float pwmValue,int direction){
 
   pwmValue = constrain(pwmValue,0,255.0); // constrain PWM value to 8 bits
-
-  if (throttleValPercent < pedalValPercent && pedalValPercent < 40) { //boost pedal under 40%
-    float normalized = pedalValPercent / 40.0f; // 0.0 to 1.0
-    float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f; // from 3.0 to 1.0
+  /*
+  if (throttleValPercent < pedalValPercent && pedalValPercent < 30) { //boost pedal under 20%
+    float normalized = pedalValPercent / 20.0f; // 0.0 to 1.0
+    float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f;
     pwmValue *= scale;
-  }
+  } */
   //if direction is 1 , throttle is driven towards open position, otherwise the polarity is reversed to close it.
   if(direction){
     digitalWrite(motorControl1, LOW);
     digitalWrite(motorControl2, HIGH);
     analogWrite(throttleMotorPin,(int)pwmValue); 
-    commandedPWM = (int)pwmValue;
   }
   else{
     digitalWrite(motorControl1, HIGH);
     digitalWrite(motorControl2, LOW);
-    analogWrite(throttleMotorPin,(int)(pwmValue * returnPWMMultiplier)); // because there exists a spring in the throttle body, which would normally return it to zero, we don't need to commands as much PWM to move towards zero. 
-    commandedPWM = (int)(pwmValue * returnPWMMultiplier);
+    analogWrite(throttleMotorPin,(int)pwmValue); // because there exists a spring in the throttle body, which would normally return it to zero, we don't need to commands as much PWM to move towards zero. 
   }
 }
 
@@ -150,33 +144,29 @@ float calculateSetPoint(){
 
 void closedLoopControl(){
 
-  //To avoid integral windup, reset integral when throttle body is closed
-  if(throttleValPercent == 0){
-    integral = 0;
-  }
-
   float setpoint = calculateSetPoint(); // call function to calculate PID setpoint based on TPS and requests.
 
   //PID Control algorithm
 
-  float error = setpoint - throttleValPercent;
+  unsigned long now = micros();
 
-  integral += error; // I
+  float dt = (now - lastTime) / 1000000.0f;
 
-  float derivative = error - lastError; //D
+  lastTime = now;
 
-  lastError = error; //saving new error as last
+  if(dt <= 0) dt = 0.001f;
+
+  float error = setpoint - throttleValPercent; // P
+
+  integral += error * dt; // I
+
+  float derivative = (error - lastError) / dt; //D
+
+  lastError = error; 
   
   float controlVal = kP * error + kI* integral + kD * derivative;
 
 
-  // if the error is small, the motor should not be moved
-  if(abs(error) <= 1){
-    integral = 0;
-    digitalWrite(motorControl1,LOW);
-    digitalWrite(motorControl2,LOW);
-    analogWrite(throttleMotorPin,0); 
-  }
   //allow for reverse motor movement, change direction if there is an overshoot
   if (controlVal > 0) {
     driveThrottleMotorPWM(controlVal,1);
