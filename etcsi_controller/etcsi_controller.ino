@@ -4,7 +4,7 @@
 
 //pin assignment
 
-//sensor inputs (redundant)
+//sensor inputs (to be made redundant)
 int pedalPin = A0; // pin for throttle pedal position sensor 1 (rising voltage)
 int pedalPin2 = A1;
 
@@ -26,13 +26,13 @@ int throttleValPercent = 0;
 int throttleValZeroOffset = 507;
 
 //modifiers
-#define ALS_REQ = 10; //ALS request value, only done when als request is active, and driver is off-throttle.
-#define IDLE_REQ = 5; //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
+#define ALS_REQ 10.0f //ALS request value, only done when als request is active, and driver is off-throttle.
+#define IDLE_REQ  5.0f //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
+int TCCut = 0; // value of applied Traction Control Cut, in percent
 
 int idleActive = 0; // is idle requested?
 int ALSActive = 0; // is ALS requested?
 
-int TCCut = 0;
 
 float rainMode[10] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
@@ -47,7 +47,7 @@ float kP = 1.4f;
 float kI = 1.8f;
 float kD = 1.24f;
 
-int lastError = 0;
+float lastError = 0;
 float integral = 0;
 
 //debug
@@ -66,8 +66,7 @@ void correctionCallback(const std_msgs::Float32& msg){
 // Subscriber subscribing to topic "throttle_correction"
 ros::Subscriber<std_msgs::Float32> correction_sub("throttle_correction", &correctionCallback);
 
-void setup() {
-  
+void setup(){
   nh.initNode();
   nh.subscribe(correction_sub);
 
@@ -107,11 +106,11 @@ void readVTA(){
   throttleValPercent = map(throttleVal,throttleValZeroOffset,1023,0,100);
 }
 
-void driveThrottleMotorPWM(int pwmValue,int direction){
+void driveThrottleMotorPWM(float pwmValue,int direction){
 
-  pwmValue = constrain((int)fabs(pwmValue),0,255); // constrain PWM value to 8 bits, cast to integer
+  pwmValue = constrain(pwmValue,0,255.0); // constrain PWM value to 8 bits
 
-  if (throttleValPercent < pedalValPercent && pedalValPercent < 40) {
+  if (throttleValPercent < pedalValPercent && pedalValPercent < 40) { //boost pedal under 40%
     float normalized = pedalValPercent / 40.0f; // 0.0 to 1.0
     float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f; // from 3.0 to 1.0
     pwmValue *= scale;
@@ -120,60 +119,55 @@ void driveThrottleMotorPWM(int pwmValue,int direction){
   if(direction){
     digitalWrite(motorControl1, LOW);
     digitalWrite(motorControl2, HIGH);
-    analogWrite(throttleMotorPin,pwmValue); 
-    commandedPWM = pwmValue;
+    analogWrite(throttleMotorPin,(int)pwmValue); 
+    commandedPWM = (int)pwmValue;
   }
   else{
     digitalWrite(motorControl1, HIGH);
     digitalWrite(motorControl2, LOW);
-    analogWrite(throttleMotorPin,pwmValue * returnPWMMultiplier); // because there exists a spring in the throttle body, which would normally return it to zero, we don't need to commands as much PWM to move towards zero. 
-    commandedPWM = pwmValue * returnPWMMultiplier;
+    analogWrite(throttleMotorPin,(int)(pwmValue * returnPWMMultiplier)); // because there exists a spring in the throttle body, which would normally return it to zero, we don't need to commands as much PWM to move towards zero. 
+    commandedPWM = (int)(pwmValue * returnPWMMultiplier);
   }
 }
 
-void throttleBodyDemo(int timeSteps){
-
-  // Sweep PWM up (opening throttle)
-  for (int pwm = 0; pwm <= 255; pwm += 5) {
-    driveThrottleMotorPWM(pwm,1);
-    delay(timeSteps); // adjust for speed
-  }
-
-  delay(20); // hold open
-
-  // Sweep PWM down (closing throttle)
-  for (int pwm = 255; pwm >= 0; pwm -= 5) {
-    driveThrottleMotorPWM(pwm,0);
-    delay(timeSteps); // adjust for speed
-  }
-  delay(20);
+float clampVal(float f){
+  return max(0.0f,min(f,100.0f));
 }
 
-int calculateSetPoint(){
-  return 0;
+float calculateSetPoint(){
+
+  //ALS
+  if(pedalVal == 0 && ALSActive == 1){ //only call ALS if drive is off-throttle, and a request is active
+    return ALS_REQ;
+  }
+  //idle
+  if(pedalVal == 0 && idleActive == 1 && compensation == 0){ //only use idle when ADAS requests no correction, driver is off-throttle, and an idle request is active.
+    return IDLE_REQ;
+  }
+
+  float corrected_pedal = (float)pedalValPercent + compensation;
+
+  return clampVal(corrected_pedal);
 }
 
 void closedLoopControl(){
 
-  //TO avoid integral windup, reset integral when throttle body is closed
+  //To avoid integral windup, reset integral when throttle body is closed
   if(throttleValPercent == 0){
     integral = 0;
   }
 
-  float corrected_pedal = pedalValPercent + compensation;
-  
-  // Clamp corrected pedal to [0, 100]
-  if(corrected_pedal > 100) corrected_pedal = 100;
-  if(corrected_pedal < 0) corrected_pedal = 0;
+  float setpoint = calculateSetPoint(); // call function to calculate PID setpoint based on TPS and requests.
 
   //PID Control algorithm
 
-  int error = corrected_pedal - throttleValPercent;
-  //int error = pedalValPercent - throttleValPercent; // error calculation
+  float error = setpoint - throttleValPercent;
 
   integral += error; // I
 
-  int derivative = error - lastError; //D
+  float derivative = error - lastError; //D
+
+  lastError = error; //saving new error as last
   
   float controlVal = kP * error + kI* integral + kD * derivative;
 
@@ -184,17 +178,13 @@ void closedLoopControl(){
     digitalWrite(motorControl2,LOW);
     analogWrite(throttleMotorPin,0); 
   }
-
   //allow for reverse motor movement, change direction if there is an overshoot
   if (controlVal > 0) {
     driveThrottleMotorPWM(controlVal,1);
-  } else {
+  }else {
     controlVal *= -1; // to reverse direction
     driveThrottleMotorPWM(controlVal,0);
   }
-
-  lastError = error;
-
 }
 
 void loop() {
@@ -208,35 +198,24 @@ void loop() {
   //read throttle input
   readVTA();
 
-  //drive throttle body with a PWM signal
-  //throttleBodyDemo(60); // demo
-
+  //drive the throttle body with PID.
   closedLoopControl();
 
   nh.spinOnce(); // update ROS
-  /*
-  //ONLY USED FOR DEBUG
-  Serial.print("Throttle Pedal percentage:  ");
-  Serial.print(pedalValPercent);
-  Serial.print("  Throttle Valve percentage:  ");
-  Serial.print(throttleValPercent);
-  Serial.print("  Commanded PWM:");
-  Serial.print(commandedPWM);
-  Serial.print('\n');
-  */
 
   //breather
   digitalWrite(LED_BUILTIN, HIGH);
-  delay(100);
+  delay(500);
   digitalWrite(LED_BUILTIN, LOW);
-  delay(100);
+  delay(500);
+
+
 
 //plotting for tuning PID
 
-Serial.print(pedalValPercent);
-Serial.print('\t');
-Serial.println(throttleValPercent);
-
+  Serial.print(pedalValPercent);
+  Serial.print('\t');
+  Serial.println(throttleValPercent);
 
 }
 
