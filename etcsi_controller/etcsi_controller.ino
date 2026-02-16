@@ -103,12 +103,7 @@ void readVTA(){
 void driveThrottleMotorPWM(float pwmValue,int direction){
 
   pwmValue = constrain(pwmValue,0,255.0); // constrain PWM value to 8 bits
-  /*
-  if (throttleValPercent < pedalValPercent && pedalValPercent < 30) { //boost pedal under 20%
-    float normalized = pedalValPercent / 20.0f; // 0.0 to 1.0
-    float scale = 1.0f + pow(1.0f - normalized, 2.0f) * 2.0f;
-    pwmValue *= scale;
-  } */
+  
   //if direction is 1 , throttle is driven towards open position, otherwise the polarity is reversed to close it.
   if(direction){
     digitalWrite(motorControl1, LOW);
