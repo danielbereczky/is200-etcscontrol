@@ -280,10 +280,10 @@ void loop() {
   nh.spinOnce(); // update ROS
 
   //plotting for tuning PID
-  Serial.print("Requested Position:");
+  Serial.print("RequestedPosition:");
   Serial.print(pedalValPercent);
-  Serial.print("Actuator Position:");
-  Serial.print('\t');
+  Serial.print(",");
+  Serial.print("ActuatorPosition:");
   Serial.println(throttleValPercent);
 
 }
