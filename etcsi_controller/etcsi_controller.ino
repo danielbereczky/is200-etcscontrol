@@ -2,19 +2,14 @@
 //Created by Daniel Bereczky 
 
 
-float P = 0.0f;
-float I = 0.0f;
-float D = 0.0f;
-
 //pin assignment
 
 //sensor inputs (to be made redundant)
-int pedalPin = A0; // pin for throttle pedal position sensor 1 (rising voltage)
-int pedalPin2 = A1;
+int pedalPin = A0; // pin for throttle pedal position sensor 1 
+int pedalPin2 = A6;
 
-int throttlePin = A2; // pin for throttle valve position sensor 1 (rising voltage)
-int throttlePin2 = A3;
-
+int throttlePin = A3; // pin for throttle valve position sensor 1 (rising voltage)
+int throttlePin2 = A7;
 
 //tc% input
 
@@ -26,35 +21,57 @@ int motorControl1 = 6; //IN1 signal of the L298N DC motor driver, used for contr
 int motorControl2 = 7; //IN2 signal of the L298N DC motor driver, used for controlling speed and direction
 
 //variables
+
+#define VTA_MAX 1023
+#define VTA2_MAX 583
+#define VPA_MAX 1023
+#define VPA2_MAX 606
+#define VTA_OFFSET 507
+#define VTA2_OFFSET 160
+#define VPA_OFFSET 428
+#define VPA2_OFFSET 114
+
 long pedalVal = 0;
 int pedalValPercent = 0;
-int pedalValZeroOffset = 430;
+
+long pedalVal2 = 0;
+int pedalVal2Percent = 0;
 
 long throttleVal = 0;
 int throttleValPercent = 0;
-int throttleValZeroOffset = 507;
+
+long throttleVal2 = 0;
+int throttleVal2Percent = 0;
 
 int TCVal = 0;
 int TCCut = 0; // value of applied Traction Control Cut, in percent
 int TCZeroOffset = 0;
 
+
+int invalid = 0;
+
 //modifiers
+#define SAMPLES 8
+#define ERR_MAX 5 // maximum percentage error difference between the two throttle plate sensors
+#define INVALID_MAX 7// maximum number of invalid sensor reads before a shutdown is triggered
 #define ALS_REQ 10.0f //ALS request value, only done when als request is active, and driver is off-throttle.
-#define IDLE_REQ  5.0f //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
+#define IDLE_REQ 5.0f //Idle request value, this is the targeted throttle opening when there is an idle request active, and user is off-throttle.
 
 int idleActive = 0; // is idle requested?
 int ALSActive = 0; // is ALS requested?
 
+int invalidSamples = 0;
+
 
 //misc
-float returnPWMMultiplier = 0.6f; // to compensate for throttle return spring
+float returnPWMMultiplier = 1.0f; // to compensate for throttle return spring
 
 //comms
 float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position
 
-float kP = 9.8f;
-float kI = 5.9f;
-float kD = 0.4f;
+float kP = 14.0f;  //19 16 0.5
+float kI = 10.7f;
+float kD = 0.2f;
 
 float lastError = 0;
 float integral = 0;
@@ -78,7 +95,7 @@ ros::Subscriber<std_msgs::Float32> correction_sub("throttle_correction", &correc
 void setup(){
   nh.initNode();
   nh.subscribe(correction_sub);
-
+  pinMode(LED_BUILTIN, OUTPUT);
   //setting up pins for motor control
   pinMode(throttleMotorPin,OUTPUT);
   pinMode(motorControl1,OUTPUT);
@@ -96,21 +113,54 @@ void setup(){
 void readVPA(){
   //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
   pedalVal = 0;
-  for(unsigned int i = 0; i < 64;i++){
+  for(unsigned int i = 0; i < SAMPLES;i++){
     pedalVal += analogRead(pedalPin);
   }
-  pedalVal /=  64;
-  pedalValPercent = constrain(map(pedalVal,pedalValZeroOffset,1023,0,100),0,100);
+  pedalVal /=  SAMPLES;
+  pedalValPercent = constrain(map(pedalVal,VPA_OFFSET,VPA_MAX,0,100),0,100);
+}
+
+void readVPA2(){
+  //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
+  pedalVal2 = 0;
+  for(unsigned int i = 0; i < SAMPLES;i++){
+    pedalVal2 += analogRead(pedalPin2);
+  }
+  pedalVal2 /=  SAMPLES;
+  pedalVal2Percent = constrain(map(pedalVal2,VPA2_OFFSET,VPA2_MAX,0,100),0,100);
 }
 
 void readVTA(){
   //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
   throttleVal = 0;
-  for(unsigned int i = 0; i < 64;i++){
+  for(unsigned int i = 0; i < SAMPLES;i++){
     throttleVal += analogRead(throttlePin);
   }
-  throttleVal /=  64;
-  throttleValPercent = constrain(map(throttleVal,throttleValZeroOffset,1023,0,100),0,100);
+  throttleVal /=  SAMPLES;
+  throttleValPercent = constrain(map(throttleVal,VTA_OFFSET,VTA_MAX,0,100),0,100);
+}
+
+void readVTA2(){
+  //read the throttle pedal 64 times and average the values, so noise does not mess up the readings.
+  throttleVal2 = 0;
+  for(unsigned int i = 0; i < SAMPLES;i++){
+    throttleVal2 += analogRead(throttlePin2);
+  }
+  throttleVal2 /=  SAMPLES;
+  throttleVal2Percent = constrain(map(throttleVal2,VTA2_OFFSET,VTA2_MAX,0,100),0,100);
+}
+
+void validate(){ //returns whether two sensor inputs are valid
+  if(abs(throttleValPercent - throttleVal2Percent) < ERR_MAX  && abs(pedalValPercent - pedalVal2Percent) < ERR_MAX) { // validate between sensors
+    invalidSamples = 0;
+    invalid = 0;
+  }
+  else{
+    invalidSamples++;
+    if(invalidSamples >= INVALID_MAX){
+      invalid = 1;
+    }
+  }
 }
 
 void readTCCut(){
@@ -157,12 +207,21 @@ float calculateSetPoint(){
   float corrected_pedal = (float)pedalValPercent + compensation;
   
   //apply TC Cut
-  //corrected_pedal = corrected_pedal * (100-TCCut);
+  //corrected_pedal = (100.0f - TCCut) / 100.0f;
 
   return clampVal(corrected_pedal);
 }
 
 void closedLoopControl(){
+  //validate sensor inputs, if invalid freeze controller, return throttle to closed
+
+  if(invalid != 0){
+    digitalWrite(LED_BUILTIN,HIGH);
+    driveThrottleMotorPWM(20,0);
+    integral = integral;
+    lastError = lastError;
+    return;
+  }
 
   float setpoint = calculateSetPoint(); // call function to calculate PID setpoint based on TPS and requests.
 
@@ -186,18 +245,14 @@ void closedLoopControl(){
   
   float controlVal = kP * error + kI* integral + kD * derivative;
 
-
-  P = error;
-  I = integral;
-  D = derivative;
-
   //allow for reverse motor movement, change direction if there is an overshoot
-  if (controlVal > 0) {
+  if (controlVal > 0 ) {
     driveThrottleMotorPWM(controlVal,1);
   }else {
     controlVal *= -1; // to reverse direction
     driveThrottleMotorPWM(controlVal,0);
   }
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 void loop() {
@@ -207,27 +262,28 @@ void loop() {
 
   //read pedal input
   readVPA();
+  readVPA2();
 
   //read throttle input
   readVTA();
+  readVTA2();
+
+  //validate sensors
+  validate();
 
   //read TC Pot
-  //readTCCut();
+  readTCCut();
 
   //drive the throttle body with PID.
   closedLoopControl();
 
   nh.spinOnce(); // update ROS
 
-//plotting for tuning PID
+  //plotting for tuning PID
 
-  
-  Serial.print(pedalValPercent);
+  Serial.print(throttleVal2Percent);
   Serial.print('\t');
-  Serial.print(throttleValPercent);
-  Serial.print('\n');
-
-  //Serial.println(I);
+  Serial.println(throttleValPercent);
 
 }
 
