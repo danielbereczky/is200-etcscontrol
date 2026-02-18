@@ -2,6 +2,10 @@
 //Created by Daniel Bereczky 
 
 
+float P = 0.0f;
+float I = 0.0f;
+float D = 0.0f;
+
 //pin assignment
 
 //sensor inputs (to be made redundant)
@@ -48,9 +52,9 @@ float returnPWMMultiplier = 0.6f; // to compensate for throttle return spring
 //comms
 float compensation = 0.0f; //this is the value received from a ROS master, a correction of throttle position
 
-float kP = 19.0f;
-float kI = 16.0f;
-float kD = 0.5f;
+float kP = 9.8f;
+float kI = 5.9f;
+float kD = 0.4f;
 
 float lastError = 0;
 float integral = 0;
@@ -153,7 +157,7 @@ float calculateSetPoint(){
   float corrected_pedal = (float)pedalValPercent + compensation;
   
   //apply TC Cut
-  corrected_pedal = corrected_pedal * (100-TCCut);
+  //corrected_pedal = corrected_pedal * (100-TCCut);
 
   return clampVal(corrected_pedal);
 }
@@ -183,6 +187,10 @@ void closedLoopControl(){
   float controlVal = kP * error + kI* integral + kD * derivative;
 
 
+  P = error;
+  I = integral;
+  D = derivative;
+
   //allow for reverse motor movement, change direction if there is an overshoot
   if (controlVal > 0) {
     driveThrottleMotorPWM(controlVal,1);
@@ -204,7 +212,7 @@ void loop() {
   readVTA();
 
   //read TC Pot
-  readTCCut();
+  //readTCCut();
 
   //drive the throttle body with PID.
   closedLoopControl();
@@ -213,9 +221,13 @@ void loop() {
 
 //plotting for tuning PID
 
+  
   Serial.print(pedalValPercent);
   Serial.print('\t');
-  Serial.println(throttleValPercent);
+  Serial.print(throttleValPercent);
+  Serial.print('\n');
+
+  //Serial.println(I);
 
 }
 
